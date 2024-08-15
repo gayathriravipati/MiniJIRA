@@ -29,7 +29,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/Users/gayathri/Documents/Mini_JIRA/jira"
+set -gx VIRTUAL_ENV "/Users/gayathri/Documents/MiniJIRA/jira"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH
