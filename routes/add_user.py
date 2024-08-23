@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify, redirect, url_for
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
 
 client = MongoClient('localhost', 27017)
 db = client.jira_database
@@ -41,5 +40,3 @@ def add_user():
         return jsonify({'message': 'User added successfully'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-    return redirect(url_for('index'))

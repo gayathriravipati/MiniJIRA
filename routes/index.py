@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify
 from pymongo import MongoClient
 
 client = MongoClient('localhost', 27017)
@@ -9,5 +9,15 @@ index_bp = Blueprint('index', __name__)
 
 @index_bp.route('/')
 def index():
-    users = users_collection.find()
-    return render_template('index.html', users=users)
+    try:
+        users_cursor = users_collection.find()
+        users = list(users_cursor)
+        
+        # Convert MongoDB ObjectId to string for JSON serialization
+        for user in users:
+            user['_id'] = str(user['_id'])
+        
+        return jsonify(users), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
