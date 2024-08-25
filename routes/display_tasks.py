@@ -12,10 +12,10 @@ display_tasks_bp = Blueprint('display_tasks', __name__)
 @display_tasks_bp.route('/display_tasks/<int:user_id>', methods=['GET'])
 def display_tasks(user_id):
     try:
-        # Fetch tasks assigned to the user
+        # Fetch tasks assigned to the user and not closed
         assigned_tasks = tasks_collection.find_one(
             {"user_id": user_id},
-            {"tasks": 1}  
+            {"tasks": {"$elemMatch": {"status": {"$ne": "CLOSED"}}}}
         )
         
         if not assigned_tasks:
@@ -32,10 +32,13 @@ def display_tasks(user_id):
             shared_tasks = shared_tasks_doc.get('shared_tasks', [])
             task_ids = [task['task_id'] for task in shared_tasks]
 
-            # Fetch details of shared tasks
+            # Fetch details of shared tasks that are not closed
             shared_tasks_details = tasks_collection.find(
-                {"tasks.task_id": {"$in": task_ids}},
-                {"tasks.$": 1}  
+                {
+                    "tasks.task_id": {"$in": task_ids},
+                    "tasks.status": {"$ne": "CLOSED"}
+                },
+                {"tasks.$": 1}
             )
             
             shared_tasks_details = [task['tasks'][0] for task in shared_tasks_details]
