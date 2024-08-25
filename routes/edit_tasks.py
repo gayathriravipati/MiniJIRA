@@ -11,7 +11,7 @@ client = MongoClient('localhost', 27017)
 db = client.jira_database
 tasks_collection = db.tasks
 users_collection = db.users
-counters_collection = db.counters
+shared_tasks_collection = db.shared_tasks
 edit_tasks_bp = Blueprint('edit_tasks', __name__)
 
 @edit_tasks_bp.route('/edit_tasks/<int:task_id>/<int:user_id>', methods=['POST'])
@@ -49,16 +49,16 @@ def edit_task(task_id, user_id):
         # Validate and update the timeline if provided
         if 'timeline' in data:
             timeline_str = data['timeline']
-        try:
-            timeline = datetime.strptime(timeline_str, '%m-%d-%Y')
-        except ValueError:
-            return jsonify({"error": "Invalid date format for timeline, should be MM-DD-YYYY"}), 400
-        
-        # Timeline must be in the future
-        if timeline <= datetime.now():
-            return jsonify({"error": "Timeline must be a future date"}), 400
-        
-        update_fields["tasks.$.timeline"] = timeline
+            try:
+                timeline = datetime.strptime(timeline_str, '%m-%d-%Y')
+            except ValueError:
+                return jsonify({"error": "Invalid date format for timeline, should be MM-DD-YYYY"}), 400
+            
+            # Timeline must be in the future
+            if timeline <= datetime.now():
+                return jsonify({"error": "Timeline must be a future date"}), 400
+            
+            update_fields["tasks.$.timeline"] = timeline
 
         # Validate and update the title if provided
         if 'title' in data:
@@ -80,14 +80,16 @@ def edit_task(task_id, user_id):
                 return jsonify({"error": "share_to must be a list"}), 400
 
             valid_emails = set()
+            email_to_user_id = {}
             try:
-                user_emails = users_collection.find({}, {"user_email": 1})
+                user_emails = users_collection.find({}, {"user_email": 1, "user_id": 1})
                 for user in user_emails:
-                    if 'user_email' in user:
+                    if 'user_email' in user and 'user_id' in user:
                         email = user['user_email'].strip().lower()
                         valid_emails.add(email)
+                        email_to_user_id[email] = user['user_id']
                     else:
-                        logging.warning("User document missing 'user_email' field: %s", user)
+                        logging.warning("User document missing 'user_email' or 'user_id' field: %s", user)
             except Exception as e:
                 logging.error("Failed to fetch users: %s", str(e))
                 return jsonify({"error": "Failed to validate email addresses"}), 500
@@ -103,6 +105,37 @@ def edit_task(task_id, user_id):
                 }), 400
 
             update_fields["tasks.$.share_to"] = share_to_normalized
+
+            # Update shared_tasks collection
+            existing_share_to = task_to_edit.get('share_to', [])
+            existing_share_to_normalized = [email.strip().lower() for email in existing_share_to]
+
+            # Add new shared tasks
+            new_shared_emails = set(share_to_normalized) - set(existing_share_to_normalized)
+            for email in new_shared_emails:
+                shared_user_id = email_to_user_id.get(email)
+                if shared_user_id:
+                    shared_task_entry = {
+                        "task_owner_id": user_id,
+                        "task_id": task_id
+                    }
+                    shared_tasks_collection.update_one(
+                        {"shared_user_id": shared_user_id},
+                        {"$addToSet": {"shared_tasks": shared_task_entry}},
+                        upsert=True
+                    )
+                    logging.debug(f"Added new shared task entry for user {shared_user_id}: {shared_task_entry}")
+
+            # Remove old shared tasks
+            old_shared_emails = set(existing_share_to_normalized) - set(share_to_normalized)
+            for email in old_shared_emails:
+                shared_user_id = email_to_user_id.get(email)
+                if shared_user_id:
+                    shared_tasks_collection.update_one(
+                        {"shared_user_id": shared_user_id},
+                        {"$pull": {"shared_tasks": {"task_owner_id": user_id, "task_id": task_id}}}
+                    )
+                    logging.debug(f"Removed old shared task entry for user {shared_user_id}: {task_id}")
 
         # Proceed with the update if there are valid fields to update
         if update_fields:
