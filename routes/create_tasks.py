@@ -12,10 +12,22 @@ db = client.jira_database
 tasks_collection = db.tasks
 users_collection = db.users
 counters_collection = db.counters
+shared_tasks_collection = db.shared_tasks
+
 create_tasks_bp = Blueprint('create_tasks', __name__)
 
+def setup_shared_tasks_collection():
+    shared_tasks_collection.create_index("shared_user_id", name="shared_user_id_index")
+    shared_tasks_collection.create_index(
+        [("shared_user_id", 1), ("shared_tasks.task_id", 1)],
+        unique=True,
+        name="unique_shared_tasks"
+    )
+    logging.info("shared_tasks collection and indexes created or verified successfully.")
+
+setup_shared_tasks_collection()
+
 def get_next_task_id():
-    # Fetch the counter document
     counter = counters_collection.find_one_and_update(
         {"_id": "task_id"},
         {"$inc": {"sequence_value": 1}},
@@ -23,12 +35,6 @@ def get_next_task_id():
         upsert=True
     )
     return counter['sequence_value']
-
-# def get_user_email(user_id):
-#     user = users_collection.find_one({"user_id": user_id}, {"user_email": 1})
-#     if user and 'user_email' in user:
-#         return user['user_email'].strip().lower()
-#     return None
 
 @create_tasks_bp.route('/create_tasks', methods=['POST'])
 def create_tasks():
@@ -39,7 +45,6 @@ def create_tasks():
         if not data:
             return jsonify({"error": "Request body is missing or invalid"}), 400
 
-        # Validate required fields
         if 'user_id' not in data or not data['user_id']:
             return jsonify({"error": "user_id is required"}), 400
         if 'timeline' not in data or not data['timeline']:
@@ -54,39 +59,35 @@ def create_tasks():
         url = data.get('URL', [])
         share_to = data.get('share_to', [])
 
-        # Validate timeline date format (MM-DD-YYYY)
         try:
             timeline = datetime.strptime(timeline_str, '%m-%d-%Y')
         except ValueError:
             return jsonify({"error": "Invalid date format for timeline, should be MM-DD-YYYY"}), 400
         
-        # Timeline must be in the future
         if timeline <= datetime.now():
             return jsonify({"error": "Timeline must be a future date"}), 400
 
-        # Ensure URL and share_to are lists
         if not isinstance(url, list):
             return jsonify({"error": "URL must be a list"}), 400
         if not isinstance(share_to, list):
             return jsonify({"error": "share_to must be a list"}), 400
 
-        # Validate emails in share_to if present
         if share_to:
             valid_emails = set()
+            email_to_user_id = {}
             try:
-                # Only include the 'user_email' field
-                user_emails = users_collection.find({}, {"user_email": 1})
+                user_emails = users_collection.find({}, {"user_email": 1, "user_id": 1})
                 for user in user_emails:
-                    if 'user_email' in user:
-                        email = user['user_email'].strip().lower()  # Normalize email
+                    if 'user_email' in user and 'user_id' in user:
+                        email = user['user_email'].strip().lower()
                         valid_emails.add(email)
+                        email_to_user_id[email] = user['user_id']
                     else:
-                        logging.warning("User document missing 'user_email' field: %s", user)
+                        logging.warning("User document missing 'user_email' or 'user_id' field: %s", user)
             except Exception as e:
                 logging.error("Failed to fetch users: %s", str(e))
                 return jsonify({"error": "Failed to validate email addresses"}), 500
 
-            # Normalize share_to emails
             share_to_normalized = [email.strip().lower() for email in share_to]
             invalid_emails = [email for email in share_to_normalized if email not in valid_emails]
 
@@ -97,7 +98,6 @@ def create_tasks():
                     "invalid_emails": invalid_emails
                 }), 400
 
-        # Get the user email to populate the created_by field
         created_by = get_user_email(user_id)
         if not created_by:
             return jsonify({"error": "User not found or missing email"}), 400
@@ -116,7 +116,6 @@ def create_tasks():
             "created_by": created_by  
         }
 
-        # Debug before update
         logging.debug(f"Updating user {user_id} with task: {task}")
 
         result = tasks_collection.update_one(
@@ -125,10 +124,23 @@ def create_tasks():
             upsert=True
         )
 
-        # Check if the update was acknowledged
         if result.modified_count == 0 and result.upserted_id is None:
             logging.error("No document was modified or created.")
             return jsonify({"error": "Failed to update or insert task"}), 500
+
+        # Add shared tasks to shared_tasks collection
+        for email in share_to_normalized:
+            shared_user_id = email_to_user_id[email]
+            shared_task_entry = {
+                "task_owner_id": user_id,
+                "task_id": task_id
+            }
+            shared_tasks_collection.update_one(
+                {"shared_user_id": shared_user_id},
+                {"$addToSet": {"shared_tasks": shared_task_entry}},
+                upsert=True
+            )
+            logging.debug(f"Added shared task entry for user {shared_user_id}: {shared_task_entry}")
 
         return jsonify({"message": "Task created successfully", "task_id": task_id}), 201
     
