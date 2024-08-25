@@ -2,6 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
 from datetime import datetime
+from routes.utils.utils import get_user_email
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -23,11 +24,11 @@ def get_next_task_id():
     )
     return counter['sequence_value']
 
-def get_user_email(user_id):
-    user = users_collection.find_one({"user_id": user_id}, {"user_email": 1})
-    if user and 'user_email' in user:
-        return user['user_email'].strip().lower()
-    return None
+# def get_user_email(user_id):
+#     user = users_collection.find_one({"user_id": user_id}, {"user_email": 1})
+#     if user and 'user_email' in user:
+#         return user['user_email'].strip().lower()
+#     return None
 
 @create_tasks_bp.route('/create_tasks', methods=['POST'])
 def create_tasks():
