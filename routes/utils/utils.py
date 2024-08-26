@@ -2,12 +2,9 @@ import logging
 from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
 from datetime import datetime
-
-# Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
-
-client = MongoClient('localhost', 27017)
+client = MongoClient('localhost', 27017) #to interact with the database
 db = client.jira_database
 tasks_collection = db.tasks
 users_collection = db.users

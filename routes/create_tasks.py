@@ -3,7 +3,6 @@ from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
 from datetime import datetime
 from routes.utils.utils import get_user_email
-
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -15,17 +14,6 @@ counters_collection = db.counters
 shared_tasks_collection = db.shared_tasks
 
 create_tasks_bp = Blueprint('create_tasks', __name__)
-
-def setup_shared_tasks_collection():
-    shared_tasks_collection.create_index("shared_user_id", name="shared_user_id_index")
-    shared_tasks_collection.create_index(
-        [("shared_user_id", 1), ("shared_tasks.task_id", 1)],
-        unique=True,
-        name="unique_shared_tasks"
-    )
-    logging.info("shared_tasks collection and indexes created or verified successfully.")
-
-setup_shared_tasks_collection()
 
 def get_next_task_id():
     counter = counters_collection.find_one_and_update(
@@ -55,10 +43,12 @@ def create_tasks():
         user_id = data['user_id']
         timeline_str = data['timeline']
         title = data['title']
+        #optional - fields
         description = data.get('description', '')
         url = data.get('URL', [])
         share_to = data.get('share_to', [])
 
+        #time-line should follow format - MM-DD-YYYY and should be in the future
         try:
             timeline = datetime.strptime(timeline_str, '%m-%d-%Y')
         except ValueError:
@@ -118,6 +108,7 @@ def create_tasks():
 
         logging.debug(f"Updating user {user_id} with task: {task}")
 
+        #$push operator is used to add an element to an array. 
         result = tasks_collection.update_one(
             {"user_id": user_id},
             {"$push": {"tasks": task}},
